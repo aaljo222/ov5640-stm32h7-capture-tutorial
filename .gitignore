@@ -1,0 +1,67 @@
+```gitignore
+# Build artifacts
+/build/
+/Debug/
+/Release/
+/Release*/ 
+/Debug*/
+
+*.o
+*.obj
+*.d
+*.map
+*.lst
+*.out
+*.elf
+*.axf
+*.hex
+*.bin
+*.swp
+
+# STM32CubeIDE & Eclipse metadata
+/.settings/
+/.metadata/
+/.ipch/
+/.cproject
+/.project
+/.mxproject
+
+# STM32CubeMX generated backups
+MX_TMP_*/
+*.ioc-backup
+
+# Logs
+*.log
+
+# Python (for uart_camera_receiver or tools)
+__pycache__/
+*.py[cod]
+*.pyo
+*.pyd
+*.egg-info/
+dist/
+build/
+
+# OS-specific junk
+.DS_Store
+Thumbs.db
+Desktop.ini
+
+# VSCode & JetBrains
+.vscode/
+.idea/
+
+# Local config / secrets (if any)
+*.user
+*.launch
+*.cfg
+*.ini
+
+# Generated images / test outputs
+*.jpg
+*.jpeg
+*.png
+*.bmp
+*.raw
+capture_*.*
+```

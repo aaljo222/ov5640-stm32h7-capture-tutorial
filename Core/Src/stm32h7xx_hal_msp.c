@@ -33,7 +33,7 @@ void HAL_DCMI_MspInit(DCMI_HandleTypeDef* hdcmi)
         __HAL_RCC_DMA1_CLK_ENABLE();
 
         __HAL_RCC_DMA1_CLK_ENABLE();
-        // (DMAMUX1 없음)
+       __HAL_RCC_DMAMUX1_CLK_ENABLE(); 
 
 
         /* 공통 설정 */

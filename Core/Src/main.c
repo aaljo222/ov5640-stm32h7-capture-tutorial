@@ -40,11 +40,14 @@ uint8_t frame_buf[FRAME_SIZE];
 __attribute__((aligned(32))) uint8_t frame_buf[FRAME_SIZE];
 #endif
 
-volatile uint32_t g_frame_ready        = 0;
+/* ================== Globals / Flags ================== */
+
 volatile uint32_t g_actual_payload_len = 0;
 volatile uint32_t g_hsync_cnt          = 0;
 volatile uint32_t g_vsync_cnt          = 0;
-static  uint32_t last_print            = 0;
+volatile uint32_t g_frame_ready        = 0;
+
+/* OV5640 0x4740 (sync/pclk polarity) 읽어 저장 */
 
 /* ================== Prototypes ================== */
 
@@ -71,7 +74,6 @@ static HAL_StatusTypeDef rd8(I2C_HandleTypeDef *hi2c,
                              uint8_t *val);
 
 static void dcmi_pin_test(void);
-static void dcmi_signal_test(void); /* 필요시 사용 */
 
 void uprintf(const char *fmt, ...);
 void Error_Handler(void);
@@ -81,70 +83,61 @@ void Error_Handler(void);
  * =======================================================*/
 int main(void)
 {
-    /* MPU & HAL & Clock */
     MPU_Config();
     HAL_Init();
     SystemClock_Config();
 
-    /* D2 Domain Clock ready (H7 DCMI 관련 중요) */
-    //while (__HAL_RCC_GET_FLAG(RCC_FLAG_D2CKRDY) == RESET) {}
-
-    /* Peripherals */
-    MX_GPIO_Init();       // PWDN, RESET
-    MX_MCO_Init();        // MCO1 -> 24MHz XCLK to OV5640
+    MX_GPIO_Init();           // PWDN, RESET
+    MX_MCO_Init();            // OV5640 XCLK
     MX_USART3_UART_Init();
-    uprintf("\r\n=== DCMI RAW Snapshot Start ===\r\n");
-        uprintf("frame_buf addr = 0x%08lX, size=%lu\r\n",
-                (uint32_t)frame_buf, (uint32_t)FRAME_SIZE)    ;
+
+    uprintf("\r\nBOOT\r\n");
 
     MX_I2C1_Init();
     MX_DMA_Init();
     MX_DCMI_Init();
 
-
-    /* Camera Power & Init */
     OV5640_PowerUp();
+
     if (OV5640_Init_RAW_QVGA() != HAL_OK)
     {
-        uprintf("OV5640 RAW init FAIL\r\n");
+        uprintf("OV5640 RAW QVGA Init FAIL\r\n");
         Error_Handler();
     }
 
-    /* DCMI 신호 토글 확인 (테스트 패턴 기준) */
+    uprintf("OV5640 RAW QVGA Init OK\r\n");
+
+    // ★ 여기서 반드시 신호 먼저 확인
     dcmi_pin_test();
+    uprintf("dcmi_pin_test() done\r\n");
 
-    /* Frame buffer 초기화 + Cache 정리 */
     memset(frame_buf, 0, FRAME_SIZE);
-    SCB_CleanDCache_by_Addr((uint32_t*)frame_buf, FRAME_SIZE);
-    SCB_InvalidateDCache_by_Addr((uint32_t*)frame_buf, FRAME_SIZE);
 
-    /* Snapshot DMA 시작 (Word count = FRAME_SIZE/4) */
-    HAL_StatusTypeDef ret =
-        HAL_DCMI_Start_DMA(&hdcmi,
-                           DCMI_MODE_SNAPSHOT,
-                           (uint32_t)frame_buf,
-                           FRAME_SIZE / 4);
+    __HAL_DCMI_ENABLE_IT(&hdcmi, DCMI_IT_ERR);   // ERR만 켜두고
+
+
+
+    HAL_StatusTypeDef ret = HAL_DCMI_Start_DMA(
+                                &hdcmi,
+                                DCMI_MODE_SNAPSHOT,
+                                (uint32_t)frame_buf,
+                                FRAME_SIZE / 4);
     uprintf("HAL_DCMI_Start_DMA ret = %d\r\n", ret);
     if (ret != HAL_OK)
         Error_Handler();
 
-    __HAL_DCMI_ENABLE_IT(&hdcmi,
-        DCMI_IT_FRAME | DCMI_IT_VSYNC | DCMI_IT_LINE | DCMI_IT_ERR);
-    /* ===== Main Loop ===== */
+    uprintf("DCMI_CR=0x%08lX, DCMI_IER=0x%08lX\r\n",
+            (unsigned long)DCMI->CR,
+            (unsigned long)DCMI->IER);
+
+    uprintf("DMA1S0_CR=0x%08lX, NDTR=%lu, PAR=0x%08lX, M0AR=0x%08lX\r\n",
+            (unsigned long)DMA1_Stream0->CR,
+            (unsigned long)DMA1_Stream0->NDTR,
+            (unsigned long)DMA1_Stream0->PAR,
+            (unsigned long)DMA1_Stream0->M0AR);
+
     while (1)
     {
-        /* 1초마다 상태 출력 */
-        if (HAL_GetTick() - last_print > 1000)
-        {
-            last_print = HAL_GetTick();
-            uprintf("VSYNC=%lu, HSYNC=%lu, DMA_state=%d, DCMI_state=%d\r\n",
-                    g_vsync_cnt,
-                    g_hsync_cnt,
-                    (int)hdcmi.DMA_Handle->State,
-                    (int)hdcmi.State);
-        }
-
-        /* 프레임 캡처 완료 처리 (DMA 콜백이 g_frame_ready 세팅) */
         if (g_frame_ready)
         {
             g_frame_ready = 0;
@@ -153,7 +146,6 @@ int main(void)
             if (payload_len == 0 || payload_len > FRAME_SIZE)
                 payload_len = FRAME_SIZE;
 
-            /* 헤더 [0..3]=MAGIC, [4..7]=LEN(LE) */
             uint8_t hdr[8] = {
                 0xAA, 0x55, 0xAA, 0x55,
                 (uint8_t)(payload_len),
@@ -164,41 +156,31 @@ int main(void)
 
             HAL_UART_Transmit(&huart3, hdr, sizeof(hdr), HAL_MAX_DELAY);
             HAL_UART_Transmit(&huart3, frame_buf, payload_len, HAL_MAX_DELAY);
-
             uprintf("\r\n*** FRAME SENT (%lu bytes) ***\r\n", payload_len);
 
-            /* 다음 프레임용 버퍼 초기화 + DMA 재시작
-               - 한 장만 찍고 싶으면 이 블록을 지우면 됨 */
             memset(frame_buf, 0, FRAME_SIZE);
-            SCB_CleanDCache_by_Addr((uint32_t*)frame_buf, FRAME_SIZE);
-            SCB_InvalidateDCache_by_Addr((uint32_t*)frame_buf, FRAME_SIZE);
 
-            HAL_StatusTypeDef r =
-                HAL_DCMI_Start_DMA(&hdcmi,
-                                   DCMI_MODE_SNAPSHOT,
-                                   (uint32_t)frame_buf,
-                                   FRAME_SIZE / 4);
+            HAL_StatusTypeDef r = HAL_DCMI_Start_DMA(
+                                      &hdcmi,
+                                      DCMI_MODE_SNAPSHOT,
+                                      (uint32_t)frame_buf,
+                                      FRAME_SIZE / 4);
+            uprintf("ReStart_DMA ret = %d\r\n", r);
             if (r != HAL_OK)
                 Error_Handler();
         }
-
-        HAL_Delay(10);
     }
 }
 
-/* =========================================================
- *                   Camera Power / I2C Helpers
- * =======================================================*/
 
 static void OV5640_PowerUp(void)
 {
-    /* PWDN=0, RESET: low -> high, XCLK already provided by MCO */
-    HAL_GPIO_WritePin(CAM_PWDN_GPIO_Port, CAM_PWDN_Pin, GPIO_PIN_RESET);
+    HAL_GPIO_WritePin(GPIOD, GPIO_PIN_0, GPIO_PIN_RESET); // PWDN=0
     HAL_Delay(5);
 
-    HAL_GPIO_WritePin(CAM_RESET_GPIO_Port, CAM_RESET_Pin, GPIO_PIN_RESET);
+    HAL_GPIO_WritePin(GPIOD, GPIO_PIN_1, GPIO_PIN_RESET); // RST=0
     HAL_Delay(5);
-    HAL_GPIO_WritePin(CAM_RESET_GPIO_Port, CAM_RESET_Pin, GPIO_PIN_SET);
+    HAL_GPIO_WritePin(GPIOD, GPIO_PIN_1, GPIO_PIN_SET);   // RST=1
     HAL_Delay(50);
 
     uprintf("OV5640 PowerUp: RESET=1, PWDN=0\r\n");
@@ -240,7 +222,6 @@ static HAL_StatusTypeDef OV5640_ReadID(uint16_t *id)
 /* =========================================================
  *           OV5640 RAW QVGA (RGB565) Init (with test pattern)
  * =======================================================*/
-
 static HAL_StatusTypeDef OV5640_Init_RAW_QVGA(void)
 {
     HAL_StatusTypeDef ret;
@@ -248,32 +229,24 @@ static HAL_StatusTypeDef OV5640_Init_RAW_QVGA(void)
     uint8_t v;
 
     ret = OV5640_ReadID(&id);
-    if (ret != HAL_OK)
-    {
-        uprintf("OV5640 ID read FAIL\r\n");
-        return ret;
-    }
+    if (ret != HAL_OK) { uprintf("OV5640 ID read FAIL\r\n"); return ret; }
     uprintf("OV5640 ID = 0x%04X\r\n", id);
-    if (id != 0x5640)
-    {
-        uprintf("OV5640 ID mismatch\r\n");
-        return HAL_ERROR;
-    }
+    if (id != 0x5640) { uprintf("OV5640 ID mismatch\r\n"); return HAL_ERROR; }
 
-    /* Soft reset */
+    // Soft reset
     wr8(&hi2c1, OV5640_HAL_ADDR, 0x3008, 0x82);
     HAL_Delay(100);
 
-    /* Clock / PLL (완전 튜닝은 아니고 안정적인 저속 설정) */
-    wr8(&hi2c1, OV5640_HAL_ADDR, 0x3103, 0x11); // system clock from PLL
+    // Clock / PLL
+    wr8(&hi2c1, OV5640_HAL_ADDR, 0x3103, 0x11);
     wr8(&hi2c1, OV5640_HAL_ADDR, 0x3034, 0x1A);
     wr8(&hi2c1, OV5640_HAL_ADDR, 0x3035, 0x21);
     wr8(&hi2c1, OV5640_HAL_ADDR, 0x3036, 0x46);
     wr8(&hi2c1, OV5640_HAL_ADDR, 0x3037, 0x13);
     wr8(&hi2c1, OV5640_HAL_ADDR, 0x3108, 0x01);
-    wr8(&hi2c1, OV5640_HAL_ADDR, 0x3824, 0x02); // PCLK divider
+    wr8(&hi2c1, OV5640_HAL_ADDR, 0x3824, 0x02);
 
-    /* Window: full sensor to QVGA (binning/scale) */
+    // Full window -> QVGA
     wr8(&hi2c1, OV5640_HAL_ADDR, 0x3800, 0x00);
     wr8(&hi2c1, OV5640_HAL_ADDR, 0x3801, 0x00);
     wr8(&hi2c1, OV5640_HAL_ADDR, 0x3802, 0x00);
@@ -288,7 +261,7 @@ static HAL_StatusTypeDef OV5640_Init_RAW_QVGA(void)
     wr8(&hi2c1, OV5640_HAL_ADDR, 0x380A, 0x00); // 240
     wr8(&hi2c1, OV5640_HAL_ADDR, 0x380B, 0xF0);
 
-    /* Timing */
+    // Timing
     wr8(&hi2c1, OV5640_HAL_ADDR, 0x380C, 0x07);
     wr8(&hi2c1, OV5640_HAL_ADDR, 0x380D, 0x68);
     wr8(&hi2c1, OV5640_HAL_ADDR, 0x380E, 0x03);
@@ -299,29 +272,29 @@ static HAL_StatusTypeDef OV5640_Init_RAW_QVGA(void)
     wr8(&hi2c1, OV5640_HAL_ADDR, 0x3820, 0x47);
     wr8(&hi2c1, OV5640_HAL_ADDR, 0x3821, 0x07);
 
-    /* RGB565 출력 */
-    wr8(&hi2c1, OV5640_HAL_ADDR, 0x4300, 0x61); // RGB565
+    // RGB565
+    wr8(&hi2c1, OV5640_HAL_ADDR, 0x4300, 0x61);
     wr8(&hi2c1, OV5640_HAL_ADDR, 0x501F, 0x01); // ISP -> DVP (no JPEG)
 
-    /* DVP pads enable */
+    // DVP enable
     wr8(&hi2c1, OV5640_HAL_ADDR, 0x3017, 0xFF);
     wr8(&hi2c1, OV5640_HAL_ADDR, 0x3018, 0xFF);
-    wr8(&hi2c1, OV5640_HAL_ADDR, 0x4740, 0x21); // VS/HS/PCLK, active high
 
-    /* Test pattern ON (색바 표시, DCMI 확인용) */
+    // Sync polarity: VSYNC H, HREF low, PCLK rising
+    wr8(&hi2c1, OV5640_HAL_ADDR, 0x4740, 0x21);
+
+    // Test pattern
     wr8(&hi2c1, OV5640_HAL_ADDR, 0x503D, 0x80);
     uprintf("Test pattern ENABLED (RAW)\r\n");
 
-    /* Stream ON */
+    // Stream ON
     wr8(&hi2c1, OV5640_HAL_ADDR, 0x3008, 0x02);
-    HAL_Delay(100);
+    HAL_Delay(50);
 
     rd8(&hi2c1, OV5640_HAL_ADDR, 0x3008, &v);
     uprintf("0x3008 = 0x%02X\r\n", v);
-    rd8(&hi2c1, OV5640_HAL_ADDR, 0x4300, &v);
-    uprintf("0x4300 = 0x%02X (format)\r\n", v);
 
-    uprintf("OV5640 RAW QVGA Init OK\r\n");
+
     return HAL_OK;
 }
 
@@ -458,23 +431,22 @@ void SystemClock_Config(void)
 
 static void MX_GPIO_Init(void)
 {
-    /* PWDN/RESET 핀만 설정 (나머지 DCMI 핀은 MSP에서 설정) */
     __HAL_RCC_GPIOD_CLK_ENABLE();
 
     GPIO_InitTypeDef GPIO_InitStruct = {0};
 
-    /* PWDN */
-    GPIO_InitStruct.Pin   = CAM_PWDN_Pin;
+    /* PWDN: PD0 */
+    GPIO_InitStruct.Pin   = GPIO_PIN_0;
     GPIO_InitStruct.Mode  = GPIO_MODE_OUTPUT_PP;
     GPIO_InitStruct.Pull  = GPIO_NOPULL;
     GPIO_InitStruct.Speed = GPIO_SPEED_FREQ_LOW;
-    HAL_GPIO_Init(CAM_PWDN_GPIO_Port, &GPIO_InitStruct);
-    HAL_GPIO_WritePin(CAM_PWDN_GPIO_Port, CAM_PWDN_Pin, GPIO_PIN_RESET);
+    HAL_GPIO_Init(GPIOD, &GPIO_InitStruct);
+    HAL_GPIO_WritePin(GPIOD, GPIO_PIN_0, GPIO_PIN_RESET); // Low = 동작
 
-    /* RESET */
-    GPIO_InitStruct.Pin = CAM_RESET_Pin;
-    HAL_GPIO_Init(CAM_RESET_GPIO_Port, &GPIO_InitStruct);
-    HAL_GPIO_WritePin(CAM_RESET_GPIO_Port, CAM_RESET_Pin, GPIO_PIN_RESET);
+    /* RST: PD1 */
+    GPIO_InitStruct.Pin = GPIO_PIN_1;
+    HAL_GPIO_Init(GPIOD, &GPIO_InitStruct);
+    HAL_GPIO_WritePin(GPIOD, GPIO_PIN_1, GPIO_PIN_RESET); // 초기 Low
 }
 
 static void MX_MCO_Init(void)
@@ -489,11 +461,12 @@ static void MX_MCO_Init(void)
     g.Alternate = GPIO_AF0_MCO;
     HAL_GPIO_Init(GPIOA, &g);
 
-    /* 24MHz for OV5640 XCLK */
+    // 임시: HSI 그대로 출력 (64MHz)
     HAL_RCC_MCOConfig(RCC_MCO1,
-                      RCC_MCO1SOURCE_PLL1QCLK,
-                      RCC_MCODIV_2);  // 48MHz / 2 = 24MHz
+                      RCC_MCO1SOURCE_HSI,
+                      RCC_MCODIV_1);
 }
+
 
 static void MX_USART3_UART_Init(void)
 {
@@ -531,6 +504,8 @@ static void MX_I2C1_Init(void)
     HAL_I2CEx_ConfigDigitalFilter(&hi2c1, 0);
 }
 
+
+
 static void MX_DMA_Init(void)
 {
     __HAL_RCC_DMA1_CLK_ENABLE();
@@ -543,58 +518,54 @@ static void MX_DCMI_Init(void)
 {
     __HAL_RCC_DCMI_CLK_ENABLE();
 
-    /* 하드 리셋 */
-    __HAL_RCC_DCMI_FORCE_RESET();
-    HAL_Delay(10);
-    __HAL_RCC_DCMI_RELEASE_RESET();
-    HAL_Delay(10);
-
-    hdcmi.Instance         = DCMI;
-    hdcmi.Init.SynchroMode = DCMI_SYNCHRO_HARDWARE;
-    hdcmi.Init.PCKPolarity = DCMI_PCKPOLARITY_RISING;
-    hdcmi.Init.VSPolarity  = DCMI_VSPOLARITY_HIGH;
-    hdcmi.Init.HSPolarity  = DCMI_HSPOLARITY_HIGH;
-    hdcmi.Init.CaptureRate = DCMI_CR_ALL_FRAME;
-    hdcmi.Init.ExtendedDataMode = DCMI_EXTEND_DATA_8B;
-    hdcmi.Init.JPEGMode    = DCMI_JPEG_DISABLE;
-    hdcmi.Init.ByteSelectMode  = DCMI_BSM_ALL;
-    hdcmi.Init.ByteSelectStart = DCMI_OEBS_ODD;
-    hdcmi.Init.LineSelectMode  = DCMI_LSM_ALL;
-    hdcmi.Init.LineSelectStart = DCMI_OELS_ODD;
+    hdcmi.Instance              = DCMI;
+    hdcmi.Init.SynchroMode      = DCMI_SYNCHRO_HARDWARE;
+    hdcmi.Init.PCKPolarity      = DCMI_PCKPOLARITY_RISING;   // ✅ 바꿔
+    hdcmi.Init.VSPolarity       = DCMI_VSPOLARITY_HIGH;
+    hdcmi.Init.HSPolarity       = DCMI_HSPOLARITY_LOW;       // HS/HREF active high일 때 이렇게 많이 씀
+    hdcmi.Init.CaptureRate      = DCMI_CR_ALL_FRAME;
+    hdcmi.Init.ExtendedDataMode = DCMI_EXTEND_DATA_8B;       // D0~D7
+    hdcmi.Init.JPEGMode         = DCMI_JPEG_DISABLE;
+    hdcmi.Init.ByteSelectMode   = DCMI_BSM_ALL;
+    hdcmi.Init.LineSelectMode   = DCMI_LSM_ALL;
 
     if (HAL_DCMI_Init(&hdcmi) != HAL_OK)
         Error_Handler();
-
-//    __HAL_DCMI_ENABLE_IT(&hdcmi, DCMI_IT_FRAME | DCMI_IT_ERR);
 }
+
 
 /* ===================== Callbacks ===================== */
 
+// 1) FrameEventCallback: 일단 비워두거나 디버그만
+/* ===================== Callbacks ===================== */
+
+
+// 프레임 이벤트: 사용 안 함 (혼동 방지로 비워두기 or 로그만)
 void HAL_DCMI_FrameEventCallback(DCMI_HandleTypeDef *hdcmi_cb)
 {
-	uprintf("[IRQ] FRAME\r\n");
-	HAL_DCMI_Stop(hdcmi_cb);
+    if (hdcmi_cb->Instance != DCMI)
+        return;
 
-    uint32_t remaining_words = __HAL_DMA_GET_COUNTER(hdcmi_cb->DMA_Handle);
-    uint32_t total_words     = FRAME_SIZE / 4;
-    if (remaining_words > total_words)
-        remaining_words = 0;
+    HAL_DCMI_Stop(hdcmi_cb);   // 더 들어오기 전에 정지
 
-    uint32_t done_words = total_words - remaining_words;
-    g_actual_payload_len = done_words * 4;
-    if (g_actual_payload_len > FRAME_SIZE)
-        g_actual_payload_len = FRAME_SIZE;
+    g_actual_payload_len = FRAME_SIZE; // QVGA RGB565 고정
 
-    SCB_InvalidateDCache_by_Addr((uint32_t*)frame_buf, FRAME_SIZE);
+    uint32_t addr  = (uint32_t)frame_buf;
+    uint32_t start = addr & ~31U;
+    uint32_t end   = (addr + g_actual_payload_len + 31U) & ~31U;
+    SCB_InvalidateDCache_by_Addr((uint32_t*)start, (int32_t)(end - start));
 
-    //uprintf("\r\n[FRAME IRQ] bytes=%lu\r\n", g_actual_payload_len);
     g_frame_ready = 1;
+
+    hdcmi_cb->Instance->ICR = 0xFFFFFFFF; // 플래그 클리어
+
+    uprintf("\r\n[IRQ] FRAME EVENT OK\r\n");
 }
 
+// VSYNC/LINE 카운트 (옵션)
 void HAL_DCMI_VsyncEventCallback(DCMI_HandleTypeDef *hdcmi_cb)
 {
     g_vsync_cnt++;
-    uprintf("[IRQ] VSYNC %lu\r\n", g_vsync_cnt);
 }
 
 void HAL_DCMI_LineEventCallback(DCMI_HandleTypeDef *hdcmi_cb)
@@ -602,29 +573,47 @@ void HAL_DCMI_LineEventCallback(DCMI_HandleTypeDef *hdcmi_cb)
     g_hsync_cnt++;
 }
 
+// 에러 로깅
 void HAL_DCMI_ErrorCallback(DCMI_HandleTypeDef *hdcmi_cb)
 {
     uprintf("\r\n!!! DCMI ERROR: 0x%08lX !!!\r\n", hdcmi_cb->ErrorCode);
+    uprintf("DCMI_RISR=0x%08lX, SR=0x%08lX\r\n",
+            (unsigned long)hdcmi_cb->Instance->RISR,
+            (unsigned long)hdcmi_cb->Instance->SR);
+
+    hdcmi_cb->Instance->ICR = 0xFFFFFFFF;
 }
+
+
+
+// ✅ 실제 완료 처리는 DMA Xfer Complete 콜백만 사용
 void HAL_DMA_XferCpltCallback(DMA_HandleTypeDef *hdma)
 {
-    if (hdma == &hdma_dcmi)
+    if (hdma->Instance == DMA1_Stream0)
     {
-        /* 한 프레임(320x240x2) 다 채움 */
         HAL_DCMI_Stop(&hdcmi);
 
         g_actual_payload_len = FRAME_SIZE;
-        SCB_InvalidateDCache_by_Addr((uint32_t*)frame_buf, FRAME_SIZE);
+
+        uint32_t addr  = (uint32_t)frame_buf;
+        uint32_t start = addr & ~31U;
+        uint32_t end   = (addr + g_actual_payload_len + 31U) & ~31U;
+        SCB_InvalidateDCache_by_Addr((uint32_t*)start, (int32_t)(end - start));
 
         g_frame_ready = 1;
+
+        uprintf("\r\n[IRQ] DMA1_Stream0 XferCplt -> FRAME READY\r\n");
     }
 }
+
+
 
 /* ===================== Error ===================== */
 
 void Error_Handler(void)
 {
     __disable_irq();
+    uprintf("\r\n!!! Error_Handler");
     while (1)
     {
         // 에러시 여기서 멈춤. 필요하면 LED 토글.

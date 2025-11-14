@@ -21,15 +21,15 @@ void SysTick_Handler(void)
     HAL_IncTick();
 }
 
-/* DMA1 Stream0: DCMI */
-
-void DCMI_IRQHandler(void)
-{
-    HAL_DCMI_IRQHandler(&hdcmi);
-}
+/* ==================== Interrupt Handlers ==================== */
+// ★ CRITICAL: These must be in stm32h7xx_it.c or here!
 
 void DMA1_Stream0_IRQHandler(void)
 {
-    HAL_DMA_IRQHandler(&hdma_dcmi);
+  HAL_DMA_IRQHandler(&hdma_dcmi);
 }
 
+void DCMI_IRQHandler(void)
+{
+  HAL_DCMI_IRQHandler(&hdcmi);
+}

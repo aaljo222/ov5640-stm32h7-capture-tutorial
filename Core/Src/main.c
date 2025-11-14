@@ -22,6 +22,7 @@
 #endif
 
 #define STREAM_TO_PC   1   // 1: Send frame via UART, 0: Capture to memory only
+#define DEBUG_UART     0   // 1: Enable UART debug messages, 0: Disable (must be 0 when STREAM_TO_PC=1)
 
 /* ==================== Hardware Definitions ==================== */
 #define OV5640_ADDR_7B   0x3C
@@ -158,6 +159,7 @@ static void Analyzer_Mode_Init(void)
 /* ==================== UART Printf ==================== */
 void uprintf(const char *fmt, ...)
 {
+#if DEBUG_UART
   char buf[256];
   va_list ap;
 
@@ -172,6 +174,9 @@ void uprintf(const char *fmt, ...)
   if (n > 0) {
     HAL_UART_Transmit(&huart3, (uint8_t*)buf, (uint16_t)n, HAL_MAX_DELAY);
   }
+#else
+  (void)fmt;  // Suppress unused parameter warning
+#endif
 }
 
 /* ==================== Camera Capture Functions ==================== */

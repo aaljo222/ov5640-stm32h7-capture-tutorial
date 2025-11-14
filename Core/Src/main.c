@@ -209,9 +209,10 @@ static HAL_StatusTypeDef capture_and_send_once(void)
   // Enable DCMI interrupts
   __HAL_DCMI_ENABLE_IT(&hdcmi, DCMI_IT_FRAME | DCMI_IT_OVR | DCMI_IT_ERR);
 
-  // Start DCMI capture
+  // Start DCMI capture in SNAPSHOT mode for single frame
+  // SNAPSHOT mode: waits for VSYNC, captures exactly one frame, then stops
   HAL_StatusTypeDef st = HAL_DCMI_Start_DMA(
-      &hdcmi, DCMI_MODE_CONTINUOUS, (uint32_t)frame_buf, FRAME_SIZE/4);
+      &hdcmi, DCMI_MODE_SNAPSHOT, (uint32_t)frame_buf, FRAME_SIZE/4);
 
   if (st != HAL_OK) {
     uprintf("DCMI Start FAIL (%d)\r\n", st);

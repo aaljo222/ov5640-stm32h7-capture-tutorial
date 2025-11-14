@@ -365,58 +365,149 @@ static HAL_StatusTypeDef OV5640_Init_RAW_QVGA(void)
   wr8(&hi2c1, OV5640_HAL_ADDR, 0x3008, 0x82);
   HAL_Delay(100);
 
-  // Clock settings - PLL configuration for proper timing
-  wr8(&hi2c1, OV5640_HAL_ADDR, 0x3103, 0x11); // System clock from PLL
-  wr8(&hi2c1, OV5640_HAL_ADDR, 0x3034, 0x1A); // MIPI bit mode (not used but needed)
-  wr8(&hi2c1, OV5640_HAL_ADDR, 0x3035, 0x21); // PLL predivider
-  wr8(&hi2c1, OV5640_HAL_ADDR, 0x3036, 0x46); // PLL multiplier
-  wr8(&hi2c1, OV5640_HAL_ADDR, 0x3037, 0x13); // PLL divider
+  // ========== SYSTEM CONTROL ==========
+  wr8(&hi2c1, OV5640_HAL_ADDR, 0x3103, 0x11); // System clock from PLL, pad output enable
+  wr8(&hi2c1, OV5640_HAL_ADDR, 0x3008, 0x82); // Software reset
+  HAL_Delay(10);
 
-  // Configure RGB565 format and polarity
-  wr8(&hi2c1, OV5640_HAL_ADDR, 0x4300, 0x61); // RGB565
-  wr8(&hi2c1, OV5640_HAL_ADDR, 0x501F, 0x01); // ISP RGB
+  // ========== CLOCK/PLL SETTINGS ==========
+  // Input clock: 24MHz, Target: ~56MHz system clock for QVGA
+  wr8(&hi2c1, OV5640_HAL_ADDR, 0x3034, 0x18); // MIPI bit mode
+  wr8(&hi2c1, OV5640_HAL_ADDR, 0x3035, 0x11); // PLL pre-divider (system clock divider)
+  wr8(&hi2c1, OV5640_HAL_ADDR, 0x3036, 0x38); // PLL multiplier (56x)
+  wr8(&hi2c1, OV5640_HAL_ADDR, 0x3037, 0x13); // PLL root divider
+  wr8(&hi2c1, OV5640_HAL_ADDR, 0x3108, 0x01); // PCLK root divider
+  wr8(&hi2c1, OV5640_HAL_ADDR, 0x3824, 0x01); // PCLK manual divider
 
-  // ★ CRITICAL: DVP signal polarity
-  // VSYNC=0 (active high), HREF=0 (active high), PCLK=0 (no invert)
-  wr8(&hi2c1, OV5640_HAL_ADDR, 0x4740, 0x00);
+  // ========== AUTO FUNCTIONS ENABLE (CRITICAL FOR REAL CAMERA) ==========
+  wr8(&hi2c1, OV5640_HAL_ADDR, 0x3503, 0x00); // AE/AGC auto, delay 1 frame
+  wr8(&hi2c1, OV5640_HAL_ADDR, 0x3c07, 0x08); // 50Hz/60Hz auto detection
 
-  // DVP timing control
-  wr8(&hi2c1, OV5640_HAL_ADDR, 0x4730, 0x00); // VSYNC/HSYNC/PCLK control
+  // Auto White Balance
+  wr8(&hi2c1, OV5640_HAL_ADDR, 0x3406, 0x00); // AWB manual disable (auto mode)
+  wr8(&hi2c1, OV5640_HAL_ADDR, 0x5183, 0x80); // AWB advanced
+  wr8(&hi2c1, OV5640_HAL_ADDR, 0x5191, 0xff); // AWB top limit
+  wr8(&hi2c1, OV5640_HAL_ADDR, 0x5192, 0x00); // AWB bottom limit
 
-  wr8(&hi2c1, OV5640_HAL_ADDR, 0x4407, 0x04); // Embedded sync OFF
-  wr8(&hi2c1, OV5640_HAL_ADDR, 0x460B, 0x35); // Debug mode
-  wr8(&hi2c1, OV5640_HAL_ADDR, 0x460C, 0x22); // Debug mode
-  // Enable DVP interface pins
-  wr8(&hi2c1, OV5640_HAL_ADDR, 0x3017, 0xFF); // Output enable 1
-  wr8(&hi2c1, OV5640_HAL_ADDR, 0x3018, 0xFF); // Output enable 2
+  // ========== ISP CONTROL (Image Signal Processor) ==========
+  wr8(&hi2c1, OV5640_HAL_ADDR, 0x5000, 0xa7); // LENC on, BPC on, WPC on
+  wr8(&hi2c1, OV5640_HAL_ADDR, 0x5001, 0x83); // AWB on, auto BLC
 
-  // Image windowing for QVGA (320x240)
-  // Image windowing for QQVGA (160x120) - 테스트용
-  wr8(&hi2c1, OV5640_HAL_ADDR, 0x3800, 0x00); // X start high
-  wr8(&hi2c1, OV5640_HAL_ADDR, 0x3801, 0x00); // X start low
-  wr8(&hi2c1, OV5640_HAL_ADDR, 0x3802, 0x00); // Y start high
-  wr8(&hi2c1, OV5640_HAL_ADDR, 0x3803, 0x00); // Y start low
-  wr8(&hi2c1, OV5640_HAL_ADDR, 0x3804, 0x0A); // X end high (0x05 → 0x0A)
-  wr8(&hi2c1, OV5640_HAL_ADDR, 0x3805, 0x3F); // X end low (0x1F → 0x3F)
-  wr8(&hi2c1, OV5640_HAL_ADDR, 0x3806, 0x07); // Y end high (0x03 → 0x07)
-  wr8(&hi2c1, OV5640_HAL_ADDR, 0x3807, 0x9F); // Y end low (0xCF → 0x9F)
+  // Color Matrix (CMX)
+  wr8(&hi2c1, OV5640_HAL_ADDR, 0x5580, 0x06); // Saturation, Contrast, UV adjust enable
+  wr8(&hi2c1, OV5640_HAL_ADDR, 0x5583, 0x40); // Saturation U
+  wr8(&hi2c1, OV5640_HAL_ADDR, 0x5584, 0x40); // Saturation V
+  wr8(&hi2c1, OV5640_HAL_ADDR, 0x5588, 0x01); // Auto UV adjust enable
 
-  // wr8(&hi2c1, OV5640_HAL_ADDR, 0x503D, 0x80);  // ← 이 줄 주석 처리
-  wr8(&hi2c1, OV5640_HAL_ADDR, 0x503D, 0x00);    // Test pattern OFF
+  // Sharpness/Denoise
+  wr8(&hi2c1, OV5640_HAL_ADDR, 0x5308, 0x25); // Sharpness
+  wr8(&hi2c1, OV5640_HAL_ADDR, 0x5302, 0x10); // Denoise threshold
+
+  // Gamma, UV average, color correction, AWB, interpolation, denoise, sharpness, edge enhancement
+  wr8(&hi2c1, OV5640_HAL_ADDR, 0x5025, 0x00); // Low sum
+
+  // ========== TIMING CONTROL FOR QVGA (320x240) ==========
+  // Sensor array settings
+  wr8(&hi2c1, OV5640_HAL_ADDR, 0x3800, 0x00); // X address start high
+  wr8(&hi2c1, OV5640_HAL_ADDR, 0x3801, 0x00); // X address start low
+  wr8(&hi2c1, OV5640_HAL_ADDR, 0x3802, 0x00); // Y address start high
+  wr8(&hi2c1, OV5640_HAL_ADDR, 0x3803, 0x00); // Y address start low
+  wr8(&hi2c1, OV5640_HAL_ADDR, 0x3804, 0x0a); // X address end high (2623)
+  wr8(&hi2c1, OV5640_HAL_ADDR, 0x3805, 0x3f); // X address end low
+  wr8(&hi2c1, OV5640_HAL_ADDR, 0x3806, 0x07); // Y address end high (1951)
+  wr8(&hi2c1, OV5640_HAL_ADDR, 0x3807, 0x9f); // Y address end low
+
+  // Output size (after scaling)
+  wr8(&hi2c1, OV5640_HAL_ADDR, 0x3808, 0x01); // DVP output horizontal width high (320)
+  wr8(&hi2c1, OV5640_HAL_ADDR, 0x3809, 0x40); // DVP output horizontal width low
+  wr8(&hi2c1, OV5640_HAL_ADDR, 0x380a, 0x00); // DVP output vertical height high (240)
+  wr8(&hi2c1, OV5640_HAL_ADDR, 0x380b, 0xf0); // DVP output vertical height low
+
+  // Total size (sensor timing)
+  wr8(&hi2c1, OV5640_HAL_ADDR, 0x380c, 0x07); // Total horizontal size high (1896)
+  wr8(&hi2c1, OV5640_HAL_ADDR, 0x380d, 0x68); // Total horizontal size low
+  wr8(&hi2c1, OV5640_HAL_ADDR, 0x380e, 0x03); // Total vertical size high (740)
+  wr8(&hi2c1, OV5640_HAL_ADDR, 0x380f, 0xd8); // Total vertical size low
+
+  // Offset
+  wr8(&hi2c1, OV5640_HAL_ADDR, 0x3810, 0x00); // X offset high
+  wr8(&hi2c1, OV5640_HAL_ADDR, 0x3811, 0x10); // X offset low
+  wr8(&hi2c1, OV5640_HAL_ADDR, 0x3812, 0x00); // Y offset high
+  wr8(&hi2c1, OV5640_HAL_ADDR, 0x3813, 0x06); // Y offset low
+
+  // Increment/subsampling
+  wr8(&hi2c1, OV5640_HAL_ADDR, 0x3814, 0x31); // X increment (odd/even pixel skip)
+  wr8(&hi2c1, OV5640_HAL_ADDR, 0x3815, 0x31); // Y increment (odd/even line skip)
+
+  // ========== TIMING TC ==========
+  wr8(&hi2c1, OV5640_HAL_ADDR, 0x3820, 0x41); // Vertical flip off, binning on
+  wr8(&hi2c1, OV5640_HAL_ADDR, 0x3821, 0x07); // Horizontal mirror off, binning on
+
+  // ========== 50/60Hz DETECTOR ==========
+  wr8(&hi2c1, OV5640_HAL_ADDR, 0x3a08, 0x01); // B50 step high
+  wr8(&hi2c1, OV5640_HAL_ADDR, 0x3a09, 0x27); // B50 step low
+  wr8(&hi2c1, OV5640_HAL_ADDR, 0x3a0a, 0x00); // B60 step high
+  wr8(&hi2c1, OV5640_HAL_ADDR, 0x3a0b, 0xf6); // B60 step low
+  wr8(&hi2c1, OV5640_HAL_ADDR, 0x3a0e, 0x03); // Max 60Hz bands
+  wr8(&hi2c1, OV5640_HAL_ADDR, 0x3a0d, 0x04); // Max 50Hz bands
+
+  // ========== AEC/AGC CONTROL ==========
+  wr8(&hi2c1, OV5640_HAL_ADDR, 0x3a02, 0x03); // 60Hz max exposure high
+  wr8(&hi2c1, OV5640_HAL_ADDR, 0x3a03, 0xd8); // 60Hz max exposure low
+  wr8(&hi2c1, OV5640_HAL_ADDR, 0x3a14, 0x03); // 50Hz max exposure high
+  wr8(&hi2c1, OV5640_HAL_ADDR, 0x3a15, 0xd8); // 50Hz max exposure low
+  wr8(&hi2c1, OV5640_HAL_ADDR, 0x3a18, 0x00); // Gain ceiling high (4x)
+  wr8(&hi2c1, OV5640_HAL_ADDR, 0x3a19, 0xf8); // Gain ceiling low
+
+  // ========== BLC (Black Level Calibration) ==========
+  wr8(&hi2c1, OV5640_HAL_ADDR, 0x4001, 0x02); // BLC start line
+  wr8(&hi2c1, OV5640_HAL_ADDR, 0x4004, 0x02); // BLC line number
+
+  // ========== FORMAT CONTROL ==========
+  wr8(&hi2c1, OV5640_HAL_ADDR, 0x4300, 0x61); // RGB565 format
+  wr8(&hi2c1, OV5640_HAL_ADDR, 0x501F, 0x01); // ISP RGB output enable
+
+  // ========== DVP CONTROL (Digital Video Port) ==========
+  wr8(&hi2c1, OV5640_HAL_ADDR, 0x4740, 0x20); // VSYNC active low, HREF/HSYNC active high, PCLK not inverted
+  wr8(&hi2c1, OV5640_HAL_ADDR, 0x4730, 0x00); // VSYNC/HSYNC/PCLK delay
+  wr8(&hi2c1, OV5640_HAL_ADDR, 0x4407, 0x04); // Quantization range
+  wr8(&hi2c1, OV5640_HAL_ADDR, 0x460b, 0x35); // DVP PCLK divider manual
+  wr8(&hi2c1, OV5640_HAL_ADDR, 0x460c, 0x22); // DVP CLK divider (2x)
+  wr8(&hi2c1, OV5640_HAL_ADDR, 0x4837, 0x22); // PCLK period
+
+  // ========== OUTPUT ENABLE ==========
+  wr8(&hi2c1, OV5640_HAL_ADDR, 0x3017, 0xff); // PAD output enable (all pins)
+  wr8(&hi2c1, OV5640_HAL_ADDR, 0x3018, 0xff); // PAD output enable (all pins)
+
+  // ========== LENS CORRECTION ==========
+  wr8(&hi2c1, OV5640_HAL_ADDR, 0x5800, 0x23); // Lens correction coefficients
+  wr8(&hi2c1, OV5640_HAL_ADDR, 0x5801, 0x14);
+  wr8(&hi2c1, OV5640_HAL_ADDR, 0x5802, 0x0f);
+  wr8(&hi2c1, OV5640_HAL_ADDR, 0x5803, 0x0f);
+  wr8(&hi2c1, OV5640_HAL_ADDR, 0x5804, 0x12);
+  wr8(&hi2c1, OV5640_HAL_ADDR, 0x5805, 0x26);
+
+  // ========== TEST PATTERN ==========
+  wr8(&hi2c1, OV5640_HAL_ADDR, 0x503D, 0x00); // Test pattern OFF (real camera mode)
   uprintf("Test pattern disabled - real camera mode\r\n");
 
-  // Stream on - THIS IS CRITICAL
-  wr8(&hi2c1, OV5640_HAL_ADDR, 0x3008, 0x02);
-  HAL_Delay(100); // Increased delay for stream stabilization
+  // ========== STREAM ON ==========
+  wr8(&hi2c1, OV5640_HAL_ADDR, 0x3008, 0x02); // Wake up from standby, enable streaming
+  HAL_Delay(200); // Wait for auto exposure/white balance to stabilize
 
-  // Verify register settings
+  // Verify critical registers
   if (rd8(&hi2c1, OV5640_HAL_ADDR, 0x503D, &v) == HAL_OK)
-    uprintf("OV5640 0x503D=0x%02X (colorbar)\r\n", v);
+    uprintf("OV5640 0x503D=0x%02X (test pattern)\r\n", v);
   if (rd8(&hi2c1, OV5640_HAL_ADDR, 0x3008, &v) == HAL_OK)
-    uprintf("OV5640 0x3008=0x%02X (stream)\r\n", v);
-  if (rd8(&hi2c1, OV5640_HAL_ADDR, 0x3017, &v) == HAL_OK)
-    uprintf("OV5640 0x3017=0x%02X (output enable)\r\n", v);
+    uprintf("OV5640 0x3008=0x%02X (streaming)\r\n", v);
+  if (rd8(&hi2c1, OV5640_HAL_ADDR, 0x3503, &v) == HAL_OK)
+    uprintf("OV5640 0x3503=0x%02X (AE/AGC auto)\r\n", v);
+  if (rd8(&hi2c1, OV5640_HAL_ADDR, 0x3406, &v) == HAL_OK)
+    uprintf("OV5640 0x3406=0x%02X (AWB auto)\r\n", v);
+  if (rd8(&hi2c1, OV5640_HAL_ADDR, 0x5001, &v) == HAL_OK)
+    uprintf("OV5640 0x5001=0x%02X (ISP AWB)\r\n", v);
 
+  uprintf("OV5640 Init Complete: QVGA 320x240 RGB565 with AE/AWB\r\n");
   return HAL_OK;
 }
 

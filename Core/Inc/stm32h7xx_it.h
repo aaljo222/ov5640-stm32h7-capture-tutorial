@@ -25,7 +25,6 @@
 extern "C" {
 #endif
 
-
 /* Private includes ----------------------------------------------------------*/
 /* USER CODE BEGIN Includes */
 
@@ -57,7 +56,6 @@ void DebugMon_Handler(void);
 void PendSV_Handler(void);
 void SysTick_Handler(void);
 void DMA1_Stream0_IRQHandler(void);
-void DCMI_IRQHandler(void);     // ★ 이 줄 추가
 /* USER CODE BEGIN EFP */
 
 /* USER CODE END EFP */

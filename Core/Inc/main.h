@@ -5,19 +5,19 @@
 extern "C" {
 #endif
 
+#include <stdint.h>
 #include "stm32h7xx_hal.h"
 
+#define JPEG_BUF_SIZE (60 * 1024)
 
-/* OV5640 control pins */
-#define CAM_PWDN_Pin          GPIO_PIN_0
-#define CAM_PWDN_GPIO_Port    GPIOD
-#define CAM_RESET_Pin         GPIO_PIN_1
-#define CAM_RESET_GPIO_Port   GPIOD
+extern uint8_t  jpeg_buf[JPEG_BUF_SIZE];
+extern uint32_t jpeg_size;
 
 void Error_Handler(void);
-//void uprintf(const char *fmt, ...);
-void dcmi_soft_analyzer(void);
+void uprintf(const char *fmt, ...);
+
 #ifdef __cplusplus
 }
 #endif
-#endif /* __MAIN_H */
+
+#endif

@@ -1,37 +1,134 @@
-/* ========================================
-   인터럽트 핸들러 - 최종 버전
-   ======================================== */
+/**
+  ******************************************************************************
+  * @file    stm32h7xx_it.c
+  * @brief   Interrupt Service Routines.
+  ******************************************************************************
+  */
 
+/* Includes ------------------------------------------------------------------*/
 #include "main.h"
 #include "stm32h7xx_it.h"
 
-extern DCMI_HandleTypeDef hdcmi;
+/* External variables --------------------------------------------------------*/
 extern DMA_HandleTypeDef hdma_dcmi;
+extern DCMI_HandleTypeDef hdcmi;
+extern PCD_HandleTypeDef hpcd_USB_OTG_FS;  // USB용
+/* Private typedef -----------------------------------------------------------*/
+/* Private define ------------------------------------------------------------*/
+/* Private macro -------------------------------------------------------------*/
+/* Private variables ---------------------------------------------------------*/
+/* Private function prototypes -----------------------------------------------*/
+/* Private functions ---------------------------------------------------------*/
 
-/* 전역 변수 선언 (main.c에서 사용) */
-extern volatile uint8_t dma_done;
-extern volatile uint8_t frm_done;
+/******************************************************************************/
+/*           Cortex Processor Interruption and Exception Handlers          */
+/******************************************************************************/
 
-/* DMA1 Stream0 인터럽트 핸들러 */
+/**
+  * @brief This function handles Non maskable interrupt.
+  */
+void NMI_Handler(void)
+{
+  while (1)
+  {
+  }
+}
+
+/**
+  * @brief This function handles Hard fault interrupt.
+  */
+void HardFault_Handler(void)
+{
+  while (1)
+  {
+  }
+}
+
+/**
+  * @brief This function handles Memory management fault.
+  */
+void MemManage_Handler(void)
+{
+  while (1)
+  {
+  }
+}
+
+/**
+  * @brief This function handles Pre-fetch fault, memory access fault.
+  */
+void BusFault_Handler(void)
+{
+  while (1)
+  {
+  }
+}
+
+/**
+  * @brief This function handles Undefined instruction or illegal state.
+  */
+void UsageFault_Handler(void)
+{
+  while (1)
+  {
+  }
+}
+
+/**
+  * @brief This function handles System service call via SWI instruction.
+  */
+void SVC_Handler(void)
+{
+}
+
+/**
+  * @brief This function handles Debug monitor.
+  */
+void DebugMon_Handler(void)
+{
+}
+
+/**
+  * @brief This function handles Pendable request for system service.
+  */
+void PendSV_Handler(void)
+{
+}
+
+/**
+  * @brief This function handles System tick timer.
+  */
+void SysTick_Handler(void)
+{
+  HAL_IncTick();
+}
+
+/******************************************************************************/
+/* STM32H7xx Peripheral Interrupt Handlers                                    */
+/* Add here the Interrupt Handlers for the used peripherals.                  */
+/******************************************************************************/
+
+/**
+  * @brief This function handles DMA1 stream0 global interrupt.
+  */
 void DMA1_Stream0_IRQHandler(void)
 {
     HAL_DMA_IRQHandler(&hdma_dcmi);
 }
 
-/* DCMI 인터럽트 핸들러 */
+/**
+  * @brief This function handles DCMI global interrupt.
+  */
 void DCMI_IRQHandler(void)
 {
     HAL_DCMI_IRQHandler(&hdcmi);
 }
 
-/* ========================================
-   주의: 콜백 함수들은 main.c에 구현됨!
-
-   main.c에 있는 콜백들:
-   - HAL_DCMI_FrameEventCallback
-   - HAL_DMA_XferCpltCallback
-   - HAL_DMA_XferHalfCpltCallback
-   - HAL_DMA_XferErrorCallback
-   - HAL_DCMI_VsyncEventCallback
-   - HAL_DCMI_ErrorCallback
-   ======================================== */
+/**
+  * @brief This function handles USB On The Go FS global interrupt.
+  */
+void OTG_FS_IRQHandler(void)
+{
+    extern PCD_HandleTypeDef hpcd_USB_OTG_FS;
+    HAL_PCD_IRQHandler(&hpcd_USB_OTG_FS);
+}

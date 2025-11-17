@@ -3,177 +3,171 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>OV5640 Camera Stream</title>
-    <script src="https://cdn.socket.io/4.5.4/socket.io.min.js"></script>
-    <style>
-        body {
-            margin: 0;
-            padding: 20px;
-            font-family: Arial, sans-serif;
-            background: #1a1a1a;
-            color: #fff;
-            display: flex;
-            flex-direction: column;
-            align-items: center;
-        }
-
-        h1 {
-            color: #4CAF50;
-            margin-bottom: 10px;
-        }
-
-        .stats {
-            background: #2a2a2a;
-            padding: 15px;
-            border-radius: 8px;
-            margin-bottom: 20px;
-            min-width: 400px;
-        }
-
-        .stat-item {
-            display: flex;
-            justify-content: space-between;
-            margin: 5px 0;
-        }
-
-        .stat-label {
-            color: #888;
-        }
-
-        .stat-value {
-            color: #4CAF50;
-            font-weight: bold;
-        }
-
-        #camera-container {
-            background: #000;
-            border: 3px solid #4CAF50;
-            border-radius: 8px;
-            padding: 10px;
-            box-shadow: 0 4px 20px rgba(76, 175, 80, 0.3);
-        }
-
-        #camera-feed {
-            display: block;
-            max-width: 100%;
-            height: auto;
-            border-radius: 4px;
-        }
-
-        .status {
-            margin-top: 20px;
-            padding: 10px 20px;
-            border-radius: 5px;
-            font-weight: bold;
-        }
-
-        .status.connected {
-            background: #4CAF50;
-            color: white;
-        }
-
-        .status.disconnected {
-            background: #f44336;
-            color: white;
-        }
-
-        .no-image {
-            width: 640px;
-            height: 480px;
-            display: flex;
-            align-items: center;
-            justify-content: center;
-            background: #333;
-            color: #888;
-            font-size: 24px;
-            border-radius: 4px;
-        }
-    </style>
+    <title>OV5640 Camera Viewer</title>
+    <link rel="stylesheet" href="{{ url_for('static', filename='style.css') }}">
 </head>
 <body>
-    <h1>🎥 OV5640 Camera Stream</h1>
-    
-    <div class="stats">
-        <div class="stat-item">
-            <span class="stat-label">Frame Count:</span>
-            <span class="stat-value" id="frame-count">0</span>
+    <div class="container">
+        <header>
+            <h1>🎥 OV5640 Camera Viewer</h1>
+            <p>STM32H753 + USB CDC Live Stream</p>
+        </header>
+
+        <div class="controls">
+            <button id="startBtn" class="btn btn-start" onclick="startCamera()">
+                ▶ Start Camera
+            </button>
+            <button id="stopBtn" class="btn btn-stop" onclick="stopCamera()" disabled>
+                ⏹ Stop Camera
+            </button>
+            <div class="status">
+                <span id="statusText">Disconnected</span>
+                <span id="fpsText">FPS: 0</span>
+            </div>
         </div>
-        <div class="stat-item">
-            <span class="stat-label">Frame Size:</span>
-            <span class="stat-value" id="frame-size">0 KB</span>
+
+        <div class="video-container">
+            <img id="videoStream" src="" alt="Camera feed will appear here">
+            <div class="no-signal" id="noSignal">
+                <div class="signal-icon">📷</div>
+                <p>Press START to begin streaming</p>
+            </div>
         </div>
-        <div class="stat-item">
-            <span class="stat-label">FPS:</span>
-            <span class="stat-value" id="fps">0.0</span>
-        </div>
-        <div class="stat-item">
-            <span class="stat-label">Last Update:</span>
-            <span class="stat-value" id="last-update">-</span>
+
+        <div class="info">
+            <h3>📋 Information</h3>
+            <ul>
+                <li><strong>Resolution:</strong> 320x240 (QVGA)</li>
+                <li><strong>Format:</strong> RGB565</li>
+                <li><strong>Interface:</strong> USB CDC</li>
+                <li><strong>MCU:</strong> STM32H753ZI</li>
+            </ul>
         </div>
     </div>
-
-    <div id="camera-container">
-        <img id="camera-feed" src="" alt="Camera Feed" style="display: none;">
-        <div id="no-image" class="no-image">Waiting for camera...</div>
-    </div>
-
-    <div id="status" class="status disconnected">Disconnected</div>
 
     <script>
-        const socket = io();
-        let frameCount = 0;
-        let lastFrameTime = Date.now();
-        let fps = 0;
+        let isStreaming = false;
+        let statusInterval = null;
 
-        // Socket.IO 연결 이벤트
-        socket.on('connect', function() {
-            console.log('Connected to server');
-            document.getElementById('status').textContent = 'Connected';
-            document.getElementById('status').className = 'status connected';
-        });
+        function startCamera() {
+            fetch('/start')
+                .then(response => response.json())
+                .then(data => {
+                    if (data.status === 'success') {
+                        isStreaming = true;
+                        document.getElementById('startBtn').disabled = true;
+                        document.getElementById('stopBtn').disabled = false;
+                        document.getElementById('statusText').textContent = 'Connected';
+                        document.getElementById('statusText').className = 'status-connected';
+                        document.getElementById('noSignal').style.display = 'none';
+                        document.getElementById('videoStream').src = '/video_feed?' + new Date().getTime();
+                        
+                        // FPS 업데이트 시작
+                        startStatusUpdate();
+                        
+                        showNotification('Camera started successfully', 'success');
+                    } else {
+                        showNotification('Failed to start camera: ' + data.message, 'error');
+                    }
+                })
+                .catch(error => {
+                    showNotification('Error: ' + error, 'error');
+                });
+        }
 
-        socket.on('disconnect', function() {
-            console.log('Disconnected from server');
-            document.getElementById('status').textContent = 'Disconnected';
-            document.getElementById('status').className = 'status disconnected';
-        });
+        function stopCamera() {
+            fetch('/stop')
+                .then(response => response.json())
+                .then(data => {
+                    if (data.status === 'success') {
+                        isStreaming = false;
+                        document.getElementById('startBtn').disabled = false;
+                        document.getElementById('stopBtn').disabled = true;
+                        document.getElementById('statusText').textContent = 'Disconnected';
+                        document.getElementById('statusText').className = 'status-disconnected';
+                        document.getElementById('noSignal').style.display = 'flex';
+                        document.getElementById('videoStream').src = '';
+                        document.getElementById('fpsText').textContent = 'FPS: 0';
+                        
+                        // FPS 업데이트 중지
+                        stopStatusUpdate();
+                        
+                        showNotification('Camera stopped', 'info');
+                    }
+                })
+                .catch(error => {
+                    showNotification('Error: ' + error, 'error');
+                });
+        }
 
-        // 프레임 수신
-        socket.on('frame', function(data) {
-            frameCount++;
-            
-            // FPS 계산
-            const now = Date.now();
-            const elapsed = (now - lastFrameTime) / 1000;
-            if (elapsed > 0) {
-                fps = (fps * 0.9 + (1 / elapsed) * 0.1).toFixed(1);
+        function updateStatus() {
+            fetch('/status')
+                .then(response => response.json())
+                .then(data => {
+                    if (data.streaming) {
+                        document.getElementById('fpsText').textContent = 'FPS: ' + data.fps;
+                    }
+                })
+                .catch(error => {
+                    console.error('Status update error:', error);
+                });
+        }
+
+        function startStatusUpdate() {
+            if (statusInterval === null) {
+                statusInterval = setInterval(updateStatus, 500);
             }
-            lastFrameTime = now;
+        }
 
-            // 바이너리 데이터를 Blob으로 변환
-            const blob = new Blob([data], { type: 'image/jpeg' });
-            const url = URL.createObjectURL(blob);
+        function stopStatusUpdate() {
+            if (statusInterval !== null) {
+                clearInterval(statusInterval);
+                statusInterval = null;
+            }
+        }
 
-            // 이미지 표시
-            const img = document.getElementById('camera-feed');
-            const noImg = document.getElementById('no-image');
+        function showNotification(message, type) {
+            const notification = document.createElement('div');
+            notification.className = 'notification notification-' + type;
+            notification.textContent = message;
+            document.body.appendChild(notification);
             
-            img.onload = function() {
-                // 이전 URL 해제
-                URL.revokeObjectURL(this.src);
-            };
+            setTimeout(() => {
+                notification.classList.add('show');
+            }, 10);
             
-            img.src = url;
-            img.style.display = 'block';
-            noImg.style.display = 'none';
+            setTimeout(() => {
+                notification.classList.remove('show');
+                setTimeout(() => {
+                    notification.remove();
+                }, 300);
+            }, 3000);
+        }
 
-            // 통계 업데이트
-            document.getElementById('frame-count').textContent = frameCount;
-            document.getElementById('frame-size').textContent = (data.byteLength / 1024).toFixed(1) + ' KB';
-            document.getElementById('fps').textContent = fps;
-            document.getElementById('last-update').textContent = new Date().toLocaleTimeString();
+        // 페이지 로드 시 상태 확인
+        window.addEventListener('load', () => {
+            fetch('/status')
+                .then(response => response.json())
+                .then(data => {
+                    if (data.streaming) {
+                        // 이미 스트리밍 중이면 UI 업데이트
+                        document.getElementById('startBtn').disabled = true;
+                        document.getElementById('stopBtn').disabled = false;
+                        document.getElementById('statusText').textContent = 'Connected';
+                        document.getElementById('statusText').className = 'status-connected';
+                        document.getElementById('noSignal').style.display = 'none';
+                        document.getElementById('videoStream').src = '/video_feed?' + new Date().getTime();
+                        isStreaming = true;
+                        startStatusUpdate();
+                    }
+                });
+        });
 
-            console.log(`Frame #${frameCount}: ${data.byteLength} bytes`);
+        // 페이지 종료 시 정리
+        window.addEventListener('beforeunload', () => {
+            if (isStreaming) {
+                navigator.sendBeacon('/stop');
+            }
         });
     </script>
 </body>

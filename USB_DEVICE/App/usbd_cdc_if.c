@@ -1,4 +1,22 @@
-extern void USB_CDC_TxCplt(void);
+/* USER CODE BEGIN Header */
+/**
+  ******************************************************************************
+  * @file           : usbd_cdc_if.c
+  * @version        : v1.0_Cube
+  * @brief          : Usb device for Virtual Com Port.
+  ******************************************************************************
+  * @attention
+  *
+  * Copyright (c) 2025 STMicroelectronics.
+  * All rights reserved.
+  *
+  * This software is licensed under terms that can be found in the LICENSE file
+  * in the root directory of this software component.
+  * If no LICENSE file comes with this software, it is provided AS-IS.
+  *
+  ******************************************************************************
+  */
+/* USER CODE END Header */
 
 /* Includes ------------------------------------------------------------------*/
 #include "usbd_cdc_if.h"
@@ -293,9 +311,6 @@ static int8_t CDC_TransmitCplt_FS(uint8_t *Buf, uint32_t *Len, uint8_t epnum)
   UNUSED(Buf);
   UNUSED(Len);
   UNUSED(epnum);
-  // ★ USB 전송 완료 콜백 호출 (중요!)
-  USB_CDC_TxCplt();
-  /* USER CODE END 13 */
   /* USER CODE END 13 */
   return result;
 }

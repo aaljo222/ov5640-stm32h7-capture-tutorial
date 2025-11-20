@@ -22,20 +22,7 @@ DMA_HandleTypeDef hdma_dcmi;
 uint8_t frame_buf[FRAME_SIZE] __attribute__((section(".ram_d1")));
 volatile uint8_t frame_captured = 0;
 void SystemClock_Config(void);
-/* -----------------------------------------------------------
- *  Debug print (USART3)
- * ----------------------------------------------------------- */
-void uprintf(const char *fmt, ...)
-{
-    char buf[256];
-    va_list ap;
-    va_start(ap, fmt);
-    int len = vsnprintf(buf, sizeof(buf), fmt, ap);
-    va_end(ap);
 
-    if (len > 0)
-        HAL_UART_Transmit(&huart3, (uint8_t*)buf, len, HAL_MAX_DELAY);
-}
 
 /* -----------------------------------------------------------
  *  MCO1 = 24 MHz (XCLK to OV5640)
@@ -109,79 +96,17 @@ int main(void)
      * ----------------------------------------------------------- */
     while (1)
     {
-        if (frame_captured)
-        {
+
             frame_captured = 0;
 
-            /* USB CDC transmit */
-            uint8_t status = CDC_Transmit_FS(frame_buf, FRAME_SIZE);
+            uint8_t header[4] = {0xAA, 0x55, FRAME_W, FRAME_H};
+            CDC_Transmit_FS(header, 4);
+            CDC_Transmit_FS(frame_buf, FRAME_SIZE);
 
-            if (status == USBD_OK)
-                uprintf("Sent frame: %d bytes\r\n", FRAME_SIZE);
-            else
-                uprintf("USB busy...\r\n");
-        }
+
     }
 }
 
-
-/**
-  * @brief System Clock Configuration
-  * @retval None
-  */
-void SystemClock_Config(void)
-{
-  RCC_OscInitTypeDef RCC_OscInitStruct = {0};
-  RCC_ClkInitTypeDef RCC_ClkInitStruct = {0};
-
-  /** Supply configuration update enable
-  */
-  HAL_PWREx_ConfigSupply(PWR_LDO_SUPPLY);
-
-  /** Configure the main internal regulator output voltage
-  */
-  __HAL_PWR_VOLTAGESCALING_CONFIG(PWR_REGULATOR_VOLTAGE_SCALE3);
-
-  while(!__HAL_PWR_GET_FLAG(PWR_FLAG_VOSRDY)) {}
-
-  /** Initializes the RCC Oscillators according to the specified parameters
-  * in the RCC_OscInitTypeDef structure.
-  */
-  RCC_OscInitStruct.OscillatorType = RCC_OSCILLATORTYPE_HSI48|RCC_OSCILLATORTYPE_HSI;
-  RCC_OscInitStruct.HSIState = RCC_HSI_DIV1;
-  RCC_OscInitStruct.HSICalibrationValue = RCC_HSICALIBRATION_DEFAULT;
-  RCC_OscInitStruct.HSI48State = RCC_HSI48_ON;
-  RCC_OscInitStruct.PLL.PLLState = RCC_PLL_NONE;
-  if (HAL_RCC_OscConfig(&RCC_OscInitStruct) != HAL_OK)
-  {
-    Error_Handler();
-  }
-
-  /** Initializes the CPU, AHB and APB buses clocks
-  */
-  RCC_ClkInitStruct.ClockType = RCC_CLOCKTYPE_HCLK|RCC_CLOCKTYPE_SYSCLK
-                              |RCC_CLOCKTYPE_PCLK1|RCC_CLOCKTYPE_PCLK2
-                              |RCC_CLOCKTYPE_D3PCLK1|RCC_CLOCKTYPE_D1PCLK1;
-  RCC_ClkInitStruct.SYSCLKSource = RCC_SYSCLKSOURCE_HSI;
-  RCC_ClkInitStruct.SYSCLKDivider = RCC_SYSCLK_DIV1;
-  RCC_ClkInitStruct.AHBCLKDivider = RCC_HCLK_DIV1;
-  RCC_ClkInitStruct.APB3CLKDivider = RCC_APB3_DIV1;
-  RCC_ClkInitStruct.APB1CLKDivider = RCC_APB1_DIV1;
-  RCC_ClkInitStruct.APB2CLKDivider = RCC_APB2_DIV1;
-  RCC_ClkInitStruct.APB4CLKDivider = RCC_APB4_DIV1;
-
-  if (HAL_RCC_ClockConfig(&RCC_ClkInitStruct, FLASH_LATENCY_1) != HAL_OK)
-  {
-    Error_Handler();
-  }
-  HAL_RCC_MCOConfig(RCC_MCO1, RCC_MCO1SOURCE_HSI, RCC_MCODIV_1);
-}
-
-/**
-  * @brief DCMI Initialization Function
-  * @param None
-  * @retval None
-  */
 
 
 

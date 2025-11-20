@@ -23,8 +23,7 @@
 /.metadata/
 /.ipch/
 /.cproject
-/.project
-/.mxproject
+
 
 # STM32CubeMX generated backups
 MX_TMP_*/

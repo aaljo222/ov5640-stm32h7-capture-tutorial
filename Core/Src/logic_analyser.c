@@ -59,18 +59,18 @@ void logic_analyzer_run(void)
         uint32_t d = GPIOD->IDR;
         uint32_t e = GPIOE->IDR;
 
-        prev_pclk  = PIN_IS_HIGH(a, GPIO_PIN_6);
-        prev_hsync = PIN_IS_HIGH(a, GPIO_PIN_4);
-        prev_vsync = PIN_IS_HIGH(b, GPIO_PIN_7);
+        prev_pclk  = PIN_IS_HIGH(a, GPIO_PIN_6);  // PCLK = PA6
+        prev_hsync = PIN_IS_HIGH(a, GPIO_PIN_4);  // HSYNC = PA4
+        prev_vsync = PIN_IS_HIGH(b, GPIO_PIN_7);  // VSYNC = PB7
 
-        prev_d0 = PIN_IS_HIGH(c, GPIO_PIN_6);
-        prev_d1 = PIN_IS_HIGH(c, GPIO_PIN_7);
-        prev_d2 = PIN_IS_HIGH(c, GPIO_PIN_8);
-        prev_d3 = PIN_IS_HIGH(c, GPIO_PIN_9);
-        prev_d4 = PIN_IS_HIGH(e, GPIO_PIN_4);
-        prev_d5 = PIN_IS_HIGH(d, GPIO_PIN_3);
-        prev_d6 = PIN_IS_HIGH(e, GPIO_PIN_6);
-        prev_d7 = PIN_IS_HIGH(e, GPIO_PIN_1);
+        prev_d0 = PIN_IS_HIGH(c, GPIO_PIN_6);     // PC6 = OV5640 D2
+        prev_d1 = PIN_IS_HIGH(c, GPIO_PIN_7);     // PC7 = OV5640 D3
+        prev_d2 = PIN_IS_HIGH(c, GPIO_PIN_8);     // PC8 = OV5640 D4
+        prev_d3 = PIN_IS_HIGH(c, GPIO_PIN_9);     // PC9 = OV5640 D5
+        prev_d4 = PIN_IS_HIGH(e, GPIO_PIN_4);     // PE4 = OV5640 D6
+        prev_d5 = PIN_IS_HIGH(d, GPIO_PIN_3);     // PD3 = OV5640 D7
+        prev_d6 = PIN_IS_HIGH(e, GPIO_PIN_5);     // PE5 = OV5640 D8
+        prev_d7 = PIN_IS_HIGH(e, GPIO_PIN_6);     // PE6 = OV5640 D9
     }
 
     // ==== 샘플링 루프 ====
@@ -97,8 +97,8 @@ void logic_analyzer_run(void)
         uint8_t cur_d3 = PIN_IS_HIGH(c, GPIO_PIN_9);
         uint8_t cur_d4 = PIN_IS_HIGH(e, GPIO_PIN_4);
         uint8_t cur_d5 = PIN_IS_HIGH(d, GPIO_PIN_3);
-        uint8_t cur_d6 = PIN_IS_HIGH(e, GPIO_PIN_6);
-        uint8_t cur_d7 = PIN_IS_HIGH(e, GPIO_PIN_1);
+        uint8_t cur_d6 = PIN_IS_HIGH(e, GPIO_PIN_5);
+        uint8_t cur_d7 = PIN_IS_HIGH(e, GPIO_PIN_6);
 
         // HIGH 샘플 수
         if (cur_pclk)  pclk_high++;
@@ -159,7 +159,7 @@ void logic_analyzer_run(void)
         pclk_freq = ((float)pclk_toggles / 2.0f) / elapsed_s;
     }
 
-    // ==== 출력 (Python 파서와 맞는 형식) ====
+    // ==== 출력 ====
     uprintf("\r\n[LOGIC ANALYZER] window=%lu ms, samples=%lu\r\n",
             (uint32_t)elapsed_ms, (uint32_t)samples);
 
@@ -171,11 +171,12 @@ void logic_analyzer_run(void)
     uprintf("D3(PC7):    toggles=%6lu, HIGH=%3lu%%\r\n", d1_toggles, d1_high_pct);
     uprintf("D4(PC8):    toggles=%6lu, HIGH=%3lu%%\r\n", d2_toggles, d2_high_pct);
     uprintf("D5(PC9):    toggles=%6lu, HIGH=%3lu%%\r\n", d3_toggles, d3_high_pct);
+
     uprintf("D6(PE4):    toggles=%6lu, HIGH=%3lu%%\r\n", d4_toggles, d4_high_pct);
     uprintf("D7(PD3):    toggles=%6lu, HIGH=%3lu%%\r\n", d5_toggles, d5_high_pct);
-    uprintf("D8(PE6):    toggles=%6lu, HIGH=%3lu%%\r\n", d6_toggles, d6_high_pct);
-    uprintf("D9(PE1):    toggles=%6lu, HIGH=%3lu%%\r\n", d7_toggles, d7_high_pct);
+    uprintf("D8(PE5):    toggles=%6lu, HIGH=%3lu%%\r\n", d6_toggles, d6_high_pct);
+    uprintf("D9(PE6):    toggles=%6lu, HIGH=%3lu%%\r\n", d7_toggles, d7_high_pct);
 
     uprintf("PCLK approx: %.1f Hz\r\n", pclk_freq);
-
 }
+

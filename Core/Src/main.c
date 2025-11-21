@@ -8,9 +8,18 @@
 
 #include "usbd_cdc_if.h"
 #include "ov5640.h"
+#include "logic_analyser.h"
+
 #include <stdarg.h>
 #include <string.h>
 #include <stdio.h>
+
+/* -----------------------------------------------------------
+ *  Modes
+ * ----------------------------------------------------------- */
+#define FW_MODE_ANALYZER   0
+#define FW_MODE_CAMERA     1
+#define FW_MODE    FW_MODE_ANALYZER     // ★ 여기서 모드를 선택!
 
 /* -----------------------------------------------------------
  *  Configuration
@@ -18,11 +27,11 @@
 #define FRAME_W     160
 #define FRAME_H     120
 #define FRAME_SIZE  (FRAME_W * FRAME_H * 2)
-DMA_HandleTypeDef hdma_dcmi;
+
 uint8_t frame_buf[FRAME_SIZE] __attribute__((section(".ram_d1")));
 volatile uint8_t frame_captured = 0;
-void SystemClock_Config(void);
 
+void SystemClock_Config(void);
 
 /* -----------------------------------------------------------
  *  MCO1 = 24 MHz (XCLK to OV5640)
@@ -42,7 +51,7 @@ void HAL_DCMI_FrameEventCallback(DCMI_HandleTypeDef *hdcmi)
 }
 
 /* -----------------------------------------------------------
- *  Main
+ *  MAIN START
  * ----------------------------------------------------------- */
 int main(void)
 {
@@ -56,7 +65,32 @@ int main(void)
     MX_I2C1_Init();
     MX_DCMI_Init();
 
-    uprintf("\r\n--- OV5640 + USB CDC Stream Start ---\r\n");
+    uprintf("\r\n=== System Boot ===\r\n");
+
+    /* -----------------------------------------------------------
+     *  Mode 0 : Logic Analyzer Mode
+     * ----------------------------------------------------------- */
+#if (FW_MODE == FW_MODE_ANALYZER)
+
+    uprintf("Mode: LOGIC ANALYZER\r\n");
+    HAL_Delay(100);
+
+    // XCLK 필요 없음 / OV5640 init 필요 없음 → 순수 라인 파형 검사용
+    while (1)
+    {
+        logic_analyzer_run();      // ★ 파형 측정
+        HAL_Delay(200);            // 0.2초마다 한 번 출력
+    }
+
+#endif
+
+
+    /* -----------------------------------------------------------
+     *  Mode 1 : Camera Stream Mode (DCMI + USB CDC)
+     * ----------------------------------------------------------- */
+#if (FW_MODE == FW_MODE_CAMERA)
+
+    uprintf("Mode: CAMERA STREAM\r\n");
 
     /* 1) Enable MCO clock */
     MCO1_24MHz_Enable();
@@ -67,8 +101,7 @@ int main(void)
     OV5640_Reset();
     HAL_Delay(100);
 
-    /* 3) OV5640 Init for RGB565 QQVGA(160x120) */
-    // RGB565 + QVGA 기본 설정
+    /* 3) OV5640 Init */
     if (OV5640_Init_RGB565_QQVGA() != 0)
     {
         uprintf("OV5640 init failed!\r\n");
@@ -78,36 +111,19 @@ int main(void)
         uprintf("OV5640 init OK\r\n");
     }
 
-    uprintf("OV5640 Ready.\r\n");
-
-    /* 4) Start DCMI DMA continuous capture */
+    /* 4) Start continuous capture */
     if (HAL_DCMI_Start_DMA(&hdcmi,
                            DCMI_MODE_CONTINUOUS,
                            (uint32_t)frame_buf,
-                           FRAME_SIZE/4) != HAL_OK)
+                           FRAME_SIZE / 4) != HAL_OK)
     {
         uprintf("DCMI DMA start failed!\r\n");
         while(1);
     }
 
-    uprintf("DCMI DMA capture started.\r\n");
+    uprintf("DCMI DMA streaming...\r\n");
 
-    /* -----------------------------------------------------------
-     *  Main loop
-     * ----------------------------------------------------------- */
-   //1) ONLY usb-cdc communication TEST
-//    while (1)
-//    {
-//
-//            frame_captured = 0;
-//
-//            uint8_t header[4] = {0xAA, 0x55, FRAME_W, FRAME_H};
-//            CDC_Transmit_FS(header, 4);
-//            CDC_Transmit_FS(frame_buf, FRAME_SIZE);
-//
-//
-//    }
-    //2) from ov5640 to python web brower
+    /* Camera Mode Main Loop */
     while (1)
     {
         if (frame_captured)
@@ -122,39 +138,24 @@ int main(void)
             uprintf("Sent frame\r\n");
         }
     }
+#endif
 
+    // Should not reach here
+    while (1);
 }
 
 
-
-
-/**
-  * @brief  This function is executed in case of error occurrence.
-  * @retval None
-  */
+/* -----------------------------------------------------------
+ *  ERROR HANDLER
+ * ----------------------------------------------------------- */
 void Error_Handler(void)
 {
-  /* USER CODE BEGIN Error_Handler_Debug */
-  /* User can add his own implementation to report the HAL error return state */
-  __disable_irq();
-  while (1)
-  {
-  }
-  /* USER CODE END Error_Handler_Debug */
+    __disable_irq();
+    while (1) { }
 }
+
 #ifdef USE_FULL_ASSERT
-/**
-  * @brief  Reports the name of the source file and the source line number
-  *         where the assert_param error has occurred.
-  * @param  file: pointer to the source file name
-  * @param  line: assert_param error line source number
-  * @retval None
-  */
 void assert_failed(uint8_t *file, uint32_t line)
 {
-  /* USER CODE BEGIN 6 */
-  /* User can add his own implementation to report the file name and line number,
-     ex: printf("Wrong parameters value: file %s on line %d\r\n", file, line) */
-  /* USER CODE END 6 */
 }
-#endif /* USE_FULL_ASSERT */
+#endif

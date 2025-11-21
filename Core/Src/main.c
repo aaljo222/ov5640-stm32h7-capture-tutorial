@@ -38,6 +38,7 @@ void MCO1_24MHz_Enable(void)
 void HAL_DCMI_FrameEventCallback(DCMI_HandleTypeDef *hdcmi)
 {
     frame_captured = 1;
+    uprintf("Frame IRQ\n");
 }
 
 /* -----------------------------------------------------------
@@ -94,17 +95,34 @@ int main(void)
     /* -----------------------------------------------------------
      *  Main loop
      * ----------------------------------------------------------- */
+   //1) ONLY usb-cdc communication TEST
+//    while (1)
+//    {
+//
+//            frame_captured = 0;
+//
+//            uint8_t header[4] = {0xAA, 0x55, FRAME_W, FRAME_H};
+//            CDC_Transmit_FS(header, 4);
+//            CDC_Transmit_FS(frame_buf, FRAME_SIZE);
+//
+//
+//    }
+    //2) from ov5640 to python web brower
     while (1)
     {
-
+        if (frame_captured)
+        {
             frame_captured = 0;
 
             uint8_t header[4] = {0xAA, 0x55, FRAME_W, FRAME_H};
             CDC_Transmit_FS(header, 4);
-            CDC_Transmit_FS(frame_buf, FRAME_SIZE);
 
+            while (CDC_Transmit_FS(frame_buf, FRAME_SIZE) == USBD_BUSY);
 
+            uprintf("Sent frame\r\n");
+        }
     }
+
 }
 
 

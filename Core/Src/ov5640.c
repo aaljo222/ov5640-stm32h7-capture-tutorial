@@ -1,93 +1,168 @@
+/**
+ ******************************************************************************
+ * @file    ov5640.c
+ * @brief   OV5640 Camera driver - WITH START/STOP
+ ******************************************************************************
+ */
+
+#include "main.h"
+#include "stm32h7xx_hal.h"
 #include "ov5640.h"
-#include "i2c.h"
-#include "gpio.h"
+#include "ov5640_reg.h"
 
-OV5640_Config_t ov5640_config = {
-    .hi2c = &hi2c1,
-    .pwdn_port = GPIOD,
-    .pwdn_pin  = GPIO_PIN_0,
-    .rst_port  = GPIOD,
-    .rst_pin   = GPIO_PIN_1
+
+extern I2C_HandleTypeDef hi2c1;
+
+/* I2C address */
+#define OV5640_I2C_ADDR   (0x78)
+
+/* -----------------------------------------------------------
+ * Low-level I2C functions
+ * ----------------------------------------------------------- */
+int32_t OV5640_ReadReg(uint16_t devAddr, uint16_t reg, uint8_t *pData, uint16_t length)
+{
+    return (HAL_I2C_Mem_Read(&hi2c1, devAddr, reg,
+                             I2C_MEMADD_SIZE_16BIT, pData, length,
+                             HAL_MAX_DELAY) == HAL_OK) ? 0 : -1;
+}
+
+int32_t OV5640_WriteReg(uint16_t devAddr, uint16_t reg, uint8_t *pData, uint16_t length)
+{
+    return (HAL_I2C_Mem_Write(&hi2c1, devAddr, reg,
+                              I2C_MEMADD_SIZE_16BIT, pData, length,
+                              HAL_MAX_DELAY) == HAL_OK) ? 0 : -1;
+}
+
+/* -----------------------------------------------------------
+ * Register table loader
+ * ----------------------------------------------------------- */
+static int32_t write_table(const ov5640_reg_t *table)
+{
+    uint32_t i = 0;
+
+    while (!(table[i].reg == 0xFFFF && table[i].val == 0xFF))
+    {
+        uint8_t v = table[i].val;
+
+        OV5640_WriteReg(OV5640_I2C_ADDR, table[i].reg, &v, 1);
+        HAL_Delay(1);
+        i++;
+    }
+
+    return 0;
+}
+
+/* -----------------------------------------------------------
+ * Probe()
+ * ----------------------------------------------------------- */
+int32_t OV5640_Probe(OV5640_Object_t *pObj)
+{
+    pObj->Ctx.ReadReg  = OV5640_ReadReg;
+    pObj->Ctx.WriteReg = OV5640_WriteReg;
+    pObj->Ctx.Address  = OV5640_I2C_ADDR;
+
+    uint32_t id;
+    if (OV5640_ReadID(pObj, &id) != 0)
+        return -1;
+
+    if (id != 0x5640)
+        return -2;
+
+    return 0;
+}
+
+/* -----------------------------------------------------------
+ * Read ID
+ * ----------------------------------------------------------- */
+int32_t OV5640_ReadID(OV5640_Object_t *pObj, uint32_t *id)
+{
+    uint8_t high, low;
+
+    if (pObj->Ctx.ReadReg(pObj->Ctx.Address, OV5640_CHIP_ID_HIGH, &high, 1) != 0)
+        return -1;
+
+    if (pObj->Ctx.ReadReg(pObj->Ctx.Address, OV5640_CHIP_ID_LOW, &low, 1) != 0)
+        return -1;
+
+    *id = ((uint32_t)high << 8) | low;
+    return 0;
+}
+
+/* -----------------------------------------------------------
+ * Generic INIT
+ * ----------------------------------------------------------- */
+int32_t OV5640_Init(OV5640_Object_t *pObj, uint32_t mode, uint32_t resolution)
+{
+    write_table(ov5640_init_reg);
+    HAL_Delay(10);
+
+    write_table(ov5640_rgb565_reg);
+    HAL_Delay(10);
+
+    write_table(ov5640_qqvga_reg);
+    HAL_Delay(10);
+
+    return 0;
+}
+
+/* -----------------------------------------------------------
+ * START STREAMING - 중요!
+ * ----------------------------------------------------------- */
+int32_t OV5640_Start(OV5640_Object_t *pObj, uint32_t mode)
+{
+    write_table(ov5640_streaming_start);
+    HAL_Delay(100);  // 스트리밍 시작 대기
+
+    return 0;
+}
+
+/* -----------------------------------------------------------
+ * STOP STREAMING
+ * ----------------------------------------------------------- */
+int32_t OV5640_Stop(OV5640_Object_t *pObj)
+{
+    uint8_t val = 0x0f;  // Stream OFF
+    OV5640_WriteReg(OV5640_I2C_ADDR, 0x4202, &val, 1);
+
+    return 0;
+}
+
+/* ============================================================
+ *  Register Bus I/O
+ * ============================================================ */
+int32_t OV5640_RegisterBusIO(OV5640_Object_t *pObj, OV5640_IO_t *io)
+{
+    if (pObj == NULL || io == NULL)
+        return OV5640_ERROR;
+
+    pObj->Ctx.Address  = io->Address;
+    pObj->Ctx.Init     = io->Init;
+    pObj->Ctx.DeInit   = io->DeInit;
+    pObj->Ctx.ReadReg  = io->ReadReg;
+    pObj->Ctx.WriteReg = io->WriteReg;
+    pObj->Ctx.GetTick  = io->GetTick;
+
+    if (pObj->Ctx.Init != NULL)
+        pObj->Ctx.Init();
+
+    pObj->IsInitialized = 1;
+
+    return OV5640_OK;
+}
+
+/* -----------------------------------------------------------
+ * BSP Driver Structure
+ * ----------------------------------------------------------- */
+OV5640_CAMERA_Drv_t OV5640_CAMERA_Driver =
+{
+    .Init              = OV5640_Init,
+    .ReadID            = OV5640_ReadID,
+    .Start             = OV5640_Start,   // ← 추가!
+    .Stop              = OV5640_Stop,    // ← 추가!
+    .SetLightMode      = NULL,
+    .SetColorEffect    = NULL,
+    .SetBrightness     = NULL,
+    .SetSaturation     = NULL,
+    .SetContrast       = NULL,
+    .MirrorFlipConfig  = NULL
 };
-
-#define OV5640_ADDR 0x78  // 7-bit: 0x3C
-
-/* -------------------------------------------------------------
- *  Low-level I2C
- * ------------------------------------------------------------- */
-static HAL_StatusTypeDef I2C_Write(uint16_t reg, uint8_t data)
-{
-    uint8_t buf[3] = { reg >> 8, reg & 0xFF, data };
-    return HAL_I2C_Master_Transmit(ov5640_config.hi2c, OV5640_ADDR, buf, 3, 100);
-}
-
-uint8_t OV5640_WriteReg(uint16_t reg, uint8_t data)
-{
-    return I2C_Write(reg, data) == HAL_OK ? 0 : 1;
-}
-
-static HAL_StatusTypeDef I2C_Read(uint16_t reg, uint8_t *data)
-{
-    uint8_t buf[2] = { reg >> 8, reg & 0xFF };
-
-    if (HAL_I2C_Master_Transmit(ov5640_config.hi2c, OV5640_ADDR, buf, 2, 100) != HAL_OK)
-        return HAL_ERROR;
-
-    return HAL_I2C_Master_Receive(ov5640_config.hi2c, OV5640_ADDR, data, 1, 100);
-}
-
-uint8_t OV5640_ReadReg(uint16_t reg, uint8_t *data)
-{
-    return I2C_Read(reg, data) == HAL_OK ? 0 : 1;
-}
-
-/* -------------------------------------------------------------
- *  Power & Reset
- * ------------------------------------------------------------- */
-void OV5640_PowerUp(void)
-{
-    HAL_GPIO_WritePin(ov5640_config.pwdn_port, ov5640_config.pwdn_pin, GPIO_PIN_RESET);
-    HAL_GPIO_WritePin(ov5640_config.rst_port, ov5640_config.rst_pin, GPIO_PIN_RESET);
-    HAL_Delay(10);
-    HAL_GPIO_WritePin(ov5640_config.rst_port, ov5640_config.rst_pin, GPIO_PIN_SET);
-    HAL_Delay(20);
-}
-
-void OV5640_Reset(void)
-{
-    OV5640_WriteReg(0x3008, 0x82);  // software reset
-    HAL_Delay(10);
-    OV5640_WriteReg(0x3008, 0x42);
-    HAL_Delay(20);
-}
-
-/* -------------------------------------------------------------
- *  RGB565 QQVGA (160x120)
- * ------------------------------------------------------------- */
-HAL_StatusTypeDef OV5640_Init_RGB565_QQVGA(void)
-{
-    /* Sensor clock / reset */
-    OV5640_Reset();
-
-    /* RGB565 */
-    OV5640_WriteReg(0x4300, 0x6F);
-
-    /* Output size 160 x 120 */
-    OV5640_WriteReg(0x3800, 0x00);
-    OV5640_WriteReg(0x3801, 0x00);
-    OV5640_WriteReg(0x3802, 0x00);
-    OV5640_WriteReg(0x3803, 0x00);
-
-    OV5640_WriteReg(0x3804, 0x0A);
-    OV5640_WriteReg(0x3805, 0x3F);
-    OV5640_WriteReg(0x3806, 0x07);
-    OV5640_WriteReg(0x3807, 0x9F);
-
-    OV5640_WriteReg(0x3808, 0x00); // width = 160
-    OV5640_WriteReg(0x3809, 0xA0);
-
-    OV5640_WriteReg(0x380A, 0x00); // height = 120
-    OV5640_WriteReg(0x380B, 0x78);
-
-    return HAL_OK;
-}

@@ -1,11 +1,25 @@
+/**
+  ******************************************************************************
+  * @file    i2c.c
+  * @brief   I2C initialization
+  * @note    MSP functions are in stm32h7xx_hal_msp.c
+  ******************************************************************************
+  */
+
 #include "i2c.h"
+#include "stm32h7xx_hal.h"
 
 I2C_HandleTypeDef hi2c1;
 
+/**
+  * @brief I2C1 Initialization Function
+  * @param None
+  * @retval None
+  */
 void MX_I2C1_Init(void)
 {
     hi2c1.Instance = I2C1;
-    hi2c1.Init.Timing = 0x00D00E28;  // 100kHz
+    hi2c1.Init.Timing = 0x00D00E28;  // 100kHz for 64MHz I2C clock
     hi2c1.Init.OwnAddress1 = 0;
     hi2c1.Init.AddressingMode = I2C_ADDRESSINGMODE_7BIT;
     hi2c1.Init.DualAddressMode = I2C_DUALADDRESS_DISABLE;
@@ -15,5 +29,21 @@ void MX_I2C1_Init(void)
     hi2c1.Init.NoStretchMode = I2C_NOSTRETCH_DISABLE;
 
     if (HAL_I2C_Init(&hi2c1) != HAL_OK)
+    {
         Error_Handler();
+    }
+
+    /** Configure Analogue filter
+    */
+    if (HAL_I2CEx_ConfigAnalogFilter(&hi2c1, I2C_ANALOGFILTER_ENABLE) != HAL_OK)
+    {
+        Error_Handler();
+    }
+
+    /** Configure Digital filter
+    */
+    if (HAL_I2CEx_ConfigDigitalFilter(&hi2c1, 0) != HAL_OK)
+    {
+        Error_Handler();
+    }
 }

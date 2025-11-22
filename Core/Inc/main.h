@@ -28,7 +28,6 @@ extern "C" {
 
 /* Includes ------------------------------------------------------------------*/
 #include "stm32h7xx_hal.h"
-extern DMA_HandleTypeDef hdma_dcmi;
 
 /* Private includes ----------------------------------------------------------*/
 /* USER CODE BEGIN Includes */
